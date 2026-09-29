@@ -34,7 +34,7 @@ def rate_limited(
     [Callable[P, Coroutine[Any, Any, R]]],
     Callable[P, Coroutine[Any, Any, R]],
 ]:
-    """Rate-limit an async function independently per key using aiolimiter."""
+    """Rate-limit an async function independently for each key."""
     if max_rate <= 0 or time_period <= 0:
         raise ValueError("max_rate and time_period must be greater than 0")
 
@@ -65,7 +65,7 @@ def rate_limited_method(
     [Callable[Concatenate[Any, P], Coroutine[Any, Any, R]]],
     Callable[Concatenate[Any, P], Coroutine[Any, Any, R]],
 ]:
-    """Rate-limit an async class method independently per instance/key."""
+    """Rate-limit an async method independently for each instance and key."""
     if max_rate <= 0 or time_period <= 0:
         raise ValueError("max_rate and time_period must be greater than 0")
 
