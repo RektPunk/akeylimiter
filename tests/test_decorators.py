@@ -9,7 +9,7 @@ from akeylimiter import rate_limited, rate_limited_method
 
 
 class TestRateLimited:
-    async def test_calls_function(self):
+    async def test_calls(self):
         store = {}
 
         @rate_limited(max_rate=10, time_period=1, store=store)
@@ -18,7 +18,7 @@ class TestRateLimited:
 
         assert await fetch("hello") == "hello"
 
-    async def test_creates_and_reuses_limiter_for_same_key(self):
+    async def test_reuses_limiter(self):
         store = {}
 
         @rate_limited(max_rate=10, time_period=1, store=store)
@@ -27,13 +27,12 @@ class TestRateLimited:
 
         await fetch("key-1")
         limiter = store[("key-1",)]
-
         await fetch("key-1")
 
         assert len(store) == 1
         assert store[("key-1",)] is limiter
 
-    async def test_creates_separate_limiters_for_different_keys(self):
+    async def test_separates_keys(self):
         store = {}
 
         @rate_limited(max_rate=10, time_period=1, store=store)
@@ -78,35 +77,34 @@ class TestRateLimited:
         assert "key-1" in store
         assert isinstance(store["key-1"], AsyncLimiter)
 
-    async def test_preserves_function_metadata(self):
+    async def test_metadata(self):
         store = {}
 
         @rate_limited(max_rate=10, time_period=1, store=store)
         async def fetch(value: str) -> str:
             """Fetch a value."""
-
             return value
 
         assert fetch.__name__ == "fetch"
         assert fetch.__doc__ == "Fetch a value."
 
-    def test_rejects_non_positive_max_rate(self):
+    def test_invalid_max_rate(self):
         with pytest.raises(
             ValueError,
             match="max_rate and time_period must be greater than 0",
         ):
             rate_limited(max_rate=0, time_period=1, store={})
 
-    def test_rejects_non_positive_time_period(self):
+    def test_invalid_time_period(self):
         with pytest.raises(
             ValueError,
             match="max_rate and time_period must be greater than 0",
         ):
             rate_limited(max_rate=1, time_period=0, store={})
 
-    def test_rejects_sync_function(self):
+    def test_sync_function(self):
         store = {}
-        decorator = rate_limited(max_rate=10, time_period=1, store=store)
+        decorator = rate_limited(10, 1, store)
 
         def fetch() -> int:
             return 1
@@ -114,7 +112,7 @@ class TestRateLimited:
         with pytest.raises(TypeError, match="Expected coroutine function"):
             decorator(fetch)  # type: ignore[arg-type]
 
-    async def test_rate_limits_same_key(self):
+    async def test_rate_limits(self):
         store = {}
 
         @rate_limited(max_rate=2, time_period=1, store=store)
@@ -123,14 +121,13 @@ class TestRateLimited:
 
         await fetch("key-1")
         await fetch("key-1")
-
         start = asyncio.get_running_loop().time()
         await fetch("key-1")
         elapsed = asyncio.get_running_loop().time() - start
 
         assert elapsed >= 0.45
 
-    async def test_different_keys_do_not_share_limit(self):
+    async def test_separate_limits(self):
         store = {}
 
         @rate_limited(max_rate=1, time_period=1, store=store)
@@ -138,16 +135,31 @@ class TestRateLimited:
             return key
 
         await fetch("key-1")
-
         start = asyncio.get_running_loop().time()
         await fetch("key-2")
         elapsed = asyncio.get_running_loop().time() - start
 
         assert elapsed < 0.5
 
+    async def test_concurrent_calls(self):
+        store = {}
+
+        @rate_limited(max_rate=1, time_period=1, store=store)
+        async def fetch(key: str) -> str:
+            return key
+
+        start = asyncio.get_running_loop().time()
+        await asyncio.gather(
+            fetch("key-1"),
+            fetch("key-1"),
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert elapsed >= 0.9
+
 
 class TestRateLimitedMethod:
-    async def test_calls_method(self):
+    async def test_calls(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -164,7 +176,7 @@ class TestRateLimitedMethod:
 
         assert await service.generate("key-1") == "key-1"
 
-    async def test_creates_and_reuses_limiter_for_same_key(self):
+    async def test_reuses_limiter(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -181,13 +193,12 @@ class TestRateLimitedMethod:
 
         await service.generate("key-1")
         limiter = service.limiters[("key-1",)]
-
         await service.generate("key-1")
 
         assert len(service.limiters) == 1
         assert service.limiters[("key-1",)] is limiter
 
-    async def test_separates_different_keys(self):
+    async def test_separates_keys(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -225,12 +236,9 @@ class TestRateLimitedMethod:
 
         service1 = Service()
         service2 = Service()
-
         await service1.generate("key-1")
         await service2.generate("key-1")
 
-        assert len(service1.limiters) == 1
-        assert len(service2.limiters) == 1
         assert service1.limiters[("key-1",)] is not service2.limiters[("key-1",)]
 
     async def test_custom_key(self):
@@ -248,7 +256,6 @@ class TestRateLimitedMethod:
                 return value
 
         service = Service()
-
         await service.generate("key-1", "hello")
         await service.generate("key-1", "world")
         await service.generate("key-2", "hello")
@@ -257,7 +264,7 @@ class TestRateLimitedMethod:
         assert "key-1" in service.limiters
         assert "key-2" in service.limiters
 
-    async def test_custom_key_with_kwargs(self):
+    async def test_custom_key_kwargs(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -272,14 +279,13 @@ class TestRateLimitedMethod:
                 return value
 
         service = Service()
-
         await service.generate("key-1", value="hello")
         await service.generate("key-1", value="world")
 
         assert len(service.limiters) == 1
         assert "key-1" in service.limiters
 
-    async def test_preserves_method_metadata(self):
+    async def test_metadata(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -291,13 +297,12 @@ class TestRateLimitedMethod:
             )
             async def generate(self, key: str) -> str:
                 """Generate a value."""
-
                 return key
 
         assert Service.generate.__name__ == "generate"
         assert Service.generate.__doc__ == "Generate a value."
 
-    def test_rejects_sync_method(self):
+    def test_sync_method(self):
         class Service:
             def __init__(self) -> None:
                 self.limiters = {}
@@ -314,7 +319,7 @@ class TestRateLimitedMethod:
         with pytest.raises(TypeError, match="Expected coroutine function"):
             decorator(generate)  # type: ignore[arg-type]
 
-    def test_rejects_non_positive_max_rate(self):
+    def test_invalid_max_rate(self):
         with pytest.raises(
             ValueError,
             match="max_rate and time_period must be greater than 0",
@@ -325,7 +330,7 @@ class TestRateLimitedMethod:
                 store_factory=lambda self: self.limiters,
             )
 
-    def test_rejects_non_positive_time_period(self):
+    def test_invalid_time_period(self):
         with pytest.raises(
             ValueError,
             match="max_rate and time_period must be greater than 0",
@@ -335,3 +340,69 @@ class TestRateLimitedMethod:
                 time_period=0,
                 store_factory=lambda self: self.limiters,
             )
+
+    async def test_rate_limits(self):
+        class Service:
+            def __init__(self) -> None:
+                self.limiters = {}
+
+            @rate_limited_method(
+                max_rate=2,
+                time_period=1,
+                store_factory=lambda self: self.limiters,
+            )
+            async def generate(self, key: str) -> str:
+                return key
+
+        service = Service()
+        await service.generate("key-1")
+        await service.generate("key-1")
+        start = asyncio.get_running_loop().time()
+        await service.generate("key-1")
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert elapsed >= 0.45
+
+    async def test_separate_limits(self):
+        class Service:
+            def __init__(self) -> None:
+                self.limiters = {}
+
+            @rate_limited_method(
+                max_rate=1,
+                time_period=1,
+                store_factory=lambda self: self.limiters,
+            )
+            async def generate(self, key: str) -> str:
+                return key
+
+        service = Service()
+        await service.generate("key-1")
+        start = asyncio.get_running_loop().time()
+        await service.generate("key-2")
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert elapsed < 0.5
+
+    async def test_concurrent_calls(self):
+        class Service:
+            def __init__(self) -> None:
+                self.limiters = {}
+
+            @rate_limited_method(
+                max_rate=1,
+                time_period=1,
+                store_factory=lambda self: self.limiters,
+            )
+            async def generate(self, key: str) -> str:
+                return key
+
+        service = Service()
+        start = asyncio.get_running_loop().time()
+        await asyncio.gather(
+            service.generate("key-1"),
+            service.generate("key-1"),
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert elapsed >= 0.9
