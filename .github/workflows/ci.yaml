@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - "**.py"
-      - "**.ipynb"
+      - "**.toml"
 
 jobs:
   run-linters:
