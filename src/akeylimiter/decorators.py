@@ -17,7 +17,6 @@ def _get_limiter(
     time_period: float,
 ) -> AsyncLimiter:
     limiter = store.get(key)
-
     if limiter is None:
         limiter = AsyncLimiter(max_rate, time_period)
         store[key] = limiter
